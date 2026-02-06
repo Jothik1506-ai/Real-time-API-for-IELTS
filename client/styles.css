@@ -526,23 +526,7 @@ body.scrolled .control-panel {
         0 0 20px hsla(var(--primary-hue), 80%, 65%, 0.6) !important;
 }
 
-.btn::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
-    transform: translate(-50%, -50%);
-    transition: width var(--transition-slow), height var(--transition-slow);
-}
 
-.btn:hover::before {
-    width: 300px;
-    height: 300px;
-}
 
 .btn-icon {
     font-size: 1.3rem;
@@ -600,6 +584,35 @@ body.scrolled .control-panel {
     transform: scale(0.98);
     box-shadow: 0 0 10px hsla(0, 90%, 75%, 0.8),
         0 0 20px hsla(0, 80%, 65%, 0.6) !important;
+}
+
+.btn-mute {
+    background: linear-gradient(135deg, var(--warning), hsl(40, 90%, 45%));
+    color: var(--bg-dark);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-mute:hover:not(:disabled) {
+    box-shadow: 0 0 15px hsla(40, 90%, 65%, 0.6),
+        0 0 30px hsla(40, 90%, 55%, 0.4),
+        0 0 50px hsla(40, 90%, 55%, 0.3);
+}
+
+.btn-mute:active:not(:disabled) {
+    transform: scale(0.98);
+    box-shadow: 0 0 10px hsla(40, 100%, 75%, 0.8),
+        0 0 20px hsla(40, 90%, 65%, 0.6) !important;
+}
+
+.btn-mute.muted {
+    background: linear-gradient(135deg, var(--success), hsl(140, 70%, 40%));
+    color: white;
+}
+
+.btn-mute.muted:hover:not(:disabled) {
+    box-shadow: 0 0 15px hsla(140, 70%, 60%, 0.6),
+        0 0 30px hsla(140, 70%, 50%, 0.4),
+        0 0 50px hsla(140, 70%, 50%, 0.3);
 }
 
 .btn:disabled {

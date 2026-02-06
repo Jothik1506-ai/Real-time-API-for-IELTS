@@ -19,6 +19,7 @@ const state = {
     turnCount: 0,
     isConnected: false,
     isTalking: false,
+    isMuted: false,
     conversationHistory: []
 };
 
@@ -27,6 +28,7 @@ const elements = {
     startButton: document.getElementById('startButton'),
     talkButton: document.getElementById('talkButton'),
     stopButton: document.getElementById('stopButton'),
+    muteButton: document.getElementById('muteButton'),
     connectionStatus: document.getElementById('connectionStatus'),
     currentQuestion: document.getElementById('currentQuestion'),
     partBadge: document.getElementById('partBadge'),
@@ -45,6 +47,7 @@ const elements = {
 
 elements.startButton.addEventListener('click', startInterview);
 elements.stopButton.addEventListener('click', stopInterview);
+elements.muteButton.addEventListener('click', toggleMute);
 elements.clearTranscript.addEventListener('click', () => {
     elements.liveTranscript.innerHTML = '<p class="placeholder-text">Your speech will appear here...</p>';
 });
@@ -187,6 +190,7 @@ async function startInterview() {
         elements.startButton.disabled = true;
         elements.talkButton.disabled = false;
         elements.stopButton.disabled = false;
+        elements.muteButton.disabled = false;
 
         addLogEntry('system', 'Connected to IELTS Examiner. The interview will begin shortly.');
         elements.currentQuestion.textContent = 'Waiting for examiner to start...';
@@ -234,6 +238,9 @@ function cleanup() {
     elements.startButton.disabled = false;
     elements.talkButton.disabled = true;
     elements.stopButton.disabled = true;
+    elements.muteButton.disabled = true;
+    state.isMuted = false;
+    updateMuteButtonUI();
     elements.currentQuestion.textContent = 'Click "Start Interview" to begin...';
 }
 
@@ -429,17 +436,69 @@ function stopTalking() {
     // Unmute remote audio
     elements.remoteAudio.muted = false;
 
-    // Disable microphone track (optional - keeps it active for VAD)
-    // if (state.localStream) {
-    //     state.localStream.getAudioTracks().forEach(track => {
-    //         track.enabled = false;
-    //     });
-    // }
+    // Disable microphone track if muted, otherwise keep it disabled after talking
+    if (state.localStream) {
+        state.localStream.getAudioTracks().forEach(track => {
+            track.enabled = state.isMuted ? false : false;
+        });
+    }
 
     // Trigger response generation
     sendEvent({
         type: 'response.create'
     });
+}
+
+// ============================================
+// Mute/Unmute Functions
+// ============================================
+
+function toggleMute() {
+    if (!state.isConnected) return;
+
+    state.isMuted = !state.isMuted;
+
+    // Update microphone track state (only when not actively talking)
+    if (state.localStream && !state.isTalking) {
+        state.localStream.getAudioTracks().forEach(track => {
+            track.enabled = !state.isMuted;
+        });
+    }
+
+    updateMuteButtonUI();
+
+    const status = state.isMuted ? 'Microphone muted' : 'Microphone unmuted';
+    addLogEntry('system', status);
+    console.log(status);
+}
+
+function updateMuteButtonUI() {
+    if (!elements.muteButton) return;
+
+    const btnText = elements.muteButton.querySelector('.btn-text');
+    const btnIcon = elements.muteButton.querySelector('.btn-icon svg');
+
+    if (state.isMuted) {
+        btnText.textContent = 'Unmute';
+        elements.muteButton.classList.add('muted');
+        // Update icon to microphone (unmuted icon)
+        btnIcon.innerHTML = `
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" x2="12" y1="19" y2="22" />
+            <line x1="8" x2="16" y1="22" y2="22" />
+        `;
+    } else {
+        btnText.textContent = 'Mute';
+        elements.muteButton.classList.remove('muted');
+        // Update icon to muted microphone icon
+        btnIcon.innerHTML = `
+            <line x1="1" x2="23" y1="1" y2="23" />
+            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+            <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+            <line x1="12" x2="12" y1="19" y2="22" />
+        `;
+    }
 }
 
 // ============================================
