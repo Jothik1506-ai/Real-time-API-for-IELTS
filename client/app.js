@@ -4,7 +4,7 @@
 
 // Configuration
 const CONFIG = {
-    serverUrl: 'http://localhost:3000',
+    serverUrl: window.ENV?.BACKEND_URL || 'http://localhost:3000',
     model: 'gpt-4o-realtime-preview-2024-12-17',
     voice: 'alloy' // Options: alloy, echo, shimmer
 };
@@ -106,6 +106,7 @@ async function startInterview() {
             headers: {
                 'Content-Type': 'application/json'
             },
+            credentials: 'include',
             body: JSON.stringify({
                 config: {
                     model: CONFIG.model,
@@ -133,10 +134,34 @@ async function startInterview() {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         });
 
-        // Add local audio track
+        // Add local audio track (keep mic disabled until user holds "Hold to Talk")
         state.localStream.getTracks().forEach(track => {
             state.peerConnection.addTrack(track, state.localStream);
         });
+        state.localStream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+        });
+
+        // Handle ICE connection state changes
+        state.peerConnection.oniceconnectionstatechange = () => {
+            const iceState = state.peerConnection.iceConnectionState;
+            console.log('ICE connection state:', iceState);
+
+            switch (iceState) {
+                case 'disconnected':
+                    updateStatus('Connection unstable...', 'connecting');
+                    addLogEntry('system', 'Connection became unstable. Attempting to recover...');
+                    break;
+                case 'failed':
+                    updateStatus('Connection failed', 'error');
+                    addLogEntry('system', 'Connection failed. Please restart the interview.');
+                    cleanup();
+                    break;
+                case 'closed':
+                    updateStatus('Disconnected', 'disconnected');
+                    break;
+            }
+        };
 
         // Handle remote audio track
         state.peerConnection.ontrack = (event) => {
@@ -379,6 +404,8 @@ function handleAssistantTranscriptDone(transcript) {
 function handleUserTranscript(transcript) {
     console.log('User said:', transcript);
 
+    if (!transcript || transcript.trim().length === 0) return;
+
     // Update live transcript
     elements.liveTranscript.innerHTML = `
         <div class="transcript-item">
@@ -388,6 +415,9 @@ function handleUserTranscript(transcript) {
 
     // Add to conversation log
     addLogEntry('user', transcript);
+
+    // Note: server_vad is enabled, so OpenAI auto-responds after user speech.
+    // No need to manually send response.create here (would cause duplicate responses).
 }
 
 // ============================================
@@ -395,7 +425,7 @@ function handleUserTranscript(transcript) {
 // ============================================
 
 function startTalking() {
-    if (!state.isConnected || state.isTalking) return;
+    if (!state.isConnected || state.isTalking || state.isMuted) return;
 
     state.isTalking = true;
     elements.talkButton.classList.add('talking');
@@ -418,11 +448,8 @@ function startTalking() {
         });
     }
 
-    // Send input_audio_buffer.commit to start capturing
-    sendEvent({
-        type: 'input_audio_buffer.commit'
-    });
 }
+
 
 function stopTalking() {
     if (!state.isConnected || !state.isTalking) return;
@@ -436,14 +463,19 @@ function stopTalking() {
     // Unmute remote audio
     elements.remoteAudio.muted = false;
 
-    // Disable microphone track if muted, otherwise keep it disabled after talking
+    // Disable microphone so we only send audio while holding the button
     if (state.localStream) {
         state.localStream.getAudioTracks().forEach(track => {
-            track.enabled = state.isMuted ? false : false;
+            track.enabled = false;
         });
     }
 
-    // Trigger response generation
+    // Commit the audio buffer so OpenAI processes what was recorded
+    sendEvent({
+        type: 'input_audio_buffer.commit'
+    });
+
+    // Manually trigger AI response (server_vad is disabled for push-to-talk)
     sendEvent({
         type: 'response.create'
     });
@@ -554,14 +586,27 @@ function parseFeedback(text) {
 
     // Check if this contains a sample answer
     if (lowerText.includes('sample') || lowerText.includes('example answer')) {
-        // Extract the sample answer portion
-        const sampleMatch = text.match(/sample answer[:\s]+(.*?)(?=\n\n|$)/is);
+        // Extract the sample answer portion — use greedy match to capture full answer
+        const sampleMatch = text.match(/sample answer[:\s]+([\s\S]+?)(?=\n\n[A-Z]|$)/i);
         if (sampleMatch) {
             elements.sampleAnswer.innerHTML = `
                 <div class="sample-content">
                     ${escapeHtml(sampleMatch[1].trim())}
                 </div>
             `;
+        } else {
+            // Fallback: show everything after "sample answer" keyword
+            const idx = lowerText.indexOf('sample answer');
+            if (idx !== -1) {
+                const sampleText = text.slice(idx + 'sample answer'.length).replace(/^[:\s]+/, '').trim();
+                if (sampleText) {
+                    elements.sampleAnswer.innerHTML = `
+                        <div class="sample-content">
+                            ${escapeHtml(sampleText)}
+                        </div>
+                    `;
+                }
+            }
         }
     }
 

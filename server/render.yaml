@@ -1,0 +1,13 @@
+# Render.com Build Configuration
+# This file is optional but helps Render understand your project structure
+
+# Build settings are configured in the Render dashboard:
+# - Root Directory: server
+# - Build Command: npm install
+# - Start Command: npm start
+
+# Environment Variables (set in Render dashboard):
+# - OPENAI_API_KEY: Your OpenAI API key
+# - NODE_ENV: production
+# - SESSION_SECRET: Random secret key for sessions
+# - FRONTEND_URL: Your Vercel frontend URL (for CORS)

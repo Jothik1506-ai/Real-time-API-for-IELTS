@@ -36,6 +36,19 @@ export async function generateQueryEmbedding(query, apiKey) {
  */
 export async function retrieveContext(query, topK = 3, apiKey) {
     try {
+        // Check if vector store is available before spending API calls on embeddings
+        const { getCollection } = await import('./vectorStore.js');
+        try {
+            const coll = await getCollection();
+            const count = await coll.count();
+            if (count === 0) {
+                return { hasContext: false, context: '', sources: [] };
+            }
+        } catch {
+            // ChromaDB not running or unreachable
+            return { hasContext: false, context: '', sources: [] };
+        }
+
         // Generate embedding for query
         const queryEmbedding = await generateQueryEmbedding(query, apiKey);
 

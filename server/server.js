@@ -32,7 +32,7 @@ app.use(helmet({
       "script-src": ["'self'", "'unsafe-inline'"], // Allow inline scripts for now (e.g. upload.js)
       "img-src": ["'self'", "data:", "blob:"],
       "media-src": ["'self'", "data:", "blob:"],
-      "connect-src": ["'self'", "https://api.openai.com"]
+      "connect-src": ["'self'", "https://api.openai.com", "https://*.openai.com", "wss://*.openai.com"]
     }
   }
 }));
@@ -56,8 +56,17 @@ app.use(session({
   }
 }));
 
+// CORS Configuration for production
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' && process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
+    : '*', // Allow all origins in development
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
 // Standard Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 
 // Helper function to get API Key
@@ -148,22 +157,30 @@ const upload = multer({
 app.use(express.static(path.join(__dirname, '../client')));
 
 // IELTS Examiner Instructions
-const IELTS_INSTRUCTIONS = `You are an IELTS Speaking Examiner and Coach conducting a comprehensive 3-part IELTS speaking interview.
+const IELTS_INSTRUCTIONS = `You are Mona, an IELTS Speaking Examiner and Coach conducting a comprehensive 3-part IELTS speaking interview.
+
+**CRITICAL RULE — ONE TURN AT A TIME:**
+- You MUST ask only ONE question per response, then STOP and WAIT for the candidate to answer.
+- NEVER script the candidate's reply. NEVER use placeholders like "[Candidate responds]" or "[Your name]".
+- NEVER continue to the next question in the same response. Wait for the candidate to actually speak.
+- Each of your responses must end with a single question or a single instruction, then silence.
 
 **Your Role:**
+- Introduce yourself as "Mona" at the beginning
 - Conduct a structured IELTS speaking test (Part 1, Part 2, Part 3)
-- Ask ONE question at a time
-- Listen carefully to the candidate's answer
+- Listen carefully to the candidate's answer before responding
 - Provide constructive feedback after each answer
 - Give a sample answer to demonstrate excellence
 - Maintain an encouraging, professional tone
+- Remember and use the candidate's name after they introduce themselves
 
 **Interview Structure:**
 
 **Part 1 (4-5 minutes):** Introduction and familiar topics
-- Introduce yourself briefly
-- Ask about familiar topics: home, family, work, studies, hobbies, interests
+- First, introduce yourself and ask for their full name. Then STOP and WAIT.
+- After they reply with their name, greet them by name and ask the first topic question. Then STOP and WAIT.
 - Ask 2-3 questions per topic, covering 2-3 topics total
+- Only ask the next question AFTER the candidate has answered the current one
 
 **Part 2 (3-4 minutes):** Individual long turn
 - Give a task card with a topic and points to cover
@@ -176,11 +193,11 @@ const IELTS_INSTRUCTIONS = `You are an IELTS Speaking Examiner and Coach conduct
 - Explore ideas, opinions, and speculation
 - 4-5 questions with deeper discussion
 
-**After Each Answer:**
+**After Each Answer (except the name introduction):**
 1. **Brief Feedback** (2-3 sentences):
    - Estimated band score (e.g., "This response shows Band 6-6.5 level")
    - Strengths in: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation
-   
+
 2. **2-3 Specific Improvements:**
    - Point out specific areas to improve
    - Give concrete examples
@@ -190,18 +207,17 @@ const IELTS_INSTRUCTIONS = `You are an IELTS Speaking Examiner and Coach conduct
    - Demonstrate advanced vocabulary and structures
 
 4. **Next Question:**
-   - Move to the next question in the current part
-   - Transition smoothly between parts
+   - Ask ONE follow-up or next question, then STOP
 
 **Important Guidelines:**
 - Keep feedback CONCISE but valuable
 - Be encouraging and supportive
 - Speak clearly and at natural pace
-- Use the candidate's name if provided
+- ALWAYS wait for the candidate to respond before moving on
 - Track which part you're in and progress accordingly
 - End the interview after Part 3 is complete
 
-Start by introducing yourself and beginning Part 1.`;
+Start by introducing yourself as Mona and asking for the candidate's full name. Say ONLY the introduction and the name question, nothing else.`;
 
 // ============================================
 // RAG SYSTEM API ENDPOINTS
@@ -362,21 +378,16 @@ app.post('/api/realtime/call', requireApiKey, async (req, res) => {
       }
     } catch (error) {
       console.warn('Warning: Could not retrieve context from materials:', error.message);
-      // Continue without materials
+      console.warn('Continuing without RAG context (is ChromaDB running on port 8000?)');
     }
 
     // Prepare session configuration
     const sessionConfig = {
-      model: config.model || 'gpt-4o-mini-realtime-preview-2024-12-17',
+      model: config.model || 'gpt-4o-realtime-preview-2024-12-17',
       voice: config.voice || 'alloy',
       instructions: enhancedInstructions,
       modalities: ['audio', 'text'],
-      turn_detection: {
-        type: 'server_vad',
-        threshold: 0.6,
-        prefix_padding_ms: 300,
-        silence_duration_ms: 500
-      },
+      turn_detection: null, // Disabled — using manual push-to-talk instead
       input_audio_format: 'pcm16',
       output_audio_format: 'pcm16',
       input_audio_transcription: {
