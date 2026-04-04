@@ -22,7 +22,10 @@ export async function getCollection() {
     }
 
     try {
-        // Try to get existing collection
+        console.log(`Connecting to ChromaDB at ${process.env.CHROMA_DB_URL || 'http://localhost:8000'}...`);
+        
+        // Try to get existing collection with a short timeout check
+        // ChromaClient doesn't have a built-in timeout, so we handle the error
         collection = await client.getOrCreateCollection({
             name: 'ielts_materials',
             metadata: { description: 'IELTS learning materials and examples' }
@@ -31,8 +34,9 @@ export async function getCollection() {
         console.log('✓ ChromaDB collection initialized');
         return collection;
     } catch (error) {
-        console.error('Error initializing ChromaDB collection:', error);
-        throw error;
+        console.error('✗ ChromaDB Error:', error.message);
+        collection = null; // Ensure we try again next time
+        throw new Error(`Vector store unavailable: ${error.message}`);
     }
 }
 

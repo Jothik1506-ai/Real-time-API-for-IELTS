@@ -1,4 +1,4 @@
-const API_BASE = window.location.origin;
+const API_BASE = window.ENV?.BACKEND_URL || window.location.origin;
 
 // Load materials on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -35,6 +35,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 
         const response = await fetch(`${API_BASE}/api/upload-pdf`, {
             method: 'POST',
+            credentials: 'include',
             body: formData
         });
 
@@ -69,6 +70,7 @@ document.getElementById('searchForm').addEventListener('submit', async (e) => {
         const response = await fetch(`${API_BASE}/api/search`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({ query, topK: 3 })
         });
 
@@ -97,7 +99,9 @@ async function loadMaterials() {
     try {
         listDiv.innerHTML = '<p class="processing">Loading...</p>';
 
-        const response = await fetch(`${API_BASE}/api/materials`);
+        const response = await fetch(`${API_BASE}/api/materials`, {
+            credentials: 'include'
+        });
         const data = await response.json();
 
         if (response.ok && data.materials.length > 0) {
@@ -128,7 +132,9 @@ async function loadStats() {
     const statsDiv = document.getElementById('statsInfo');
 
     try {
-        const response = await fetch(`${API_BASE}/api/materials/stats`);
+        const response = await fetch(`${API_BASE}/api/materials/stats`, {
+            credentials: 'include'
+        });
         const data = await response.json();
 
         if (response.ok) {
@@ -158,7 +164,8 @@ async function deleteMaterial(documentId) {
 
     try {
         const response = await fetch(`${API_BASE}/api/materials/${documentId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            credentials: 'include'
         });
 
         const data = await response.json();

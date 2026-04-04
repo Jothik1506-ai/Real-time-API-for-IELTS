@@ -38,7 +38,11 @@ const elements = {
     conversationLog: document.getElementById('conversationLog'),
     remoteAudio: document.getElementById('remoteAudio'),
     clearTranscript: document.getElementById('clearTranscript'),
-    clearLog: document.getElementById('clearLog')
+    clearLog: document.getElementById('clearLog'),
+    apiKeyModal: document.getElementById('apiKeyModal'),
+    apiKeyForm: document.getElementById('apiKeyForm'),
+    apiKeyInput: document.getElementById('apiKeyInput'),
+    keyError: document.getElementById('keyError')
 };
 
 // ============================================
@@ -55,6 +59,8 @@ elements.clearLog.addEventListener('click', () => {
     elements.conversationLog.innerHTML = '';
     addLogEntry('system', 'Conversation log cleared');
 });
+
+elements.apiKeyForm.addEventListener('submit', handleKeySubmit);
 
 // Push-to-talk: Press and hold
 elements.talkButton.addEventListener('mousedown', startTalking);
@@ -86,6 +92,16 @@ elements.talkButton.addEventListener('touchend', (e) => {
 
 async function startInterview() {
     try {
+        updateStatus('Checking authentication...', 'connecting');
+
+        // Verify if API key is set
+        const authOk = await checkAuthStatus();
+        if (!authOk) {
+            showApiKeyModal();
+            updateStatus('API Key required', 'error');
+            return;
+        }
+
         updateStatus('Requesting microphone access...', 'connecting');
 
         // Request microphone permission
@@ -117,6 +133,10 @@ async function startInterview() {
 
         if (!response.ok) {
             const error = await response.json();
+            if (response.status === 401) {
+                showApiKeyModal();
+                throw new Error('Please provide your OpenAI API key');
+            }
             throw new Error(error.error || 'Failed to create session');
         }
 
@@ -183,8 +203,8 @@ async function startInterview() {
         const offer = await state.peerConnection.createOffer();
         await state.peerConnection.setLocalDescription(offer);
 
-        // Send offer to OpenAI with ephemeral key
-        const sdpResponse = await fetch('https://api.openai.com/v1/realtime', {
+        // Send offer to OpenAI with ephemeral key - UPDATED URL with model
+        const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${CONFIG.model}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${ephemeralKey}`,
@@ -196,7 +216,7 @@ async function startInterview() {
         if (!sdpResponse.ok) {
             const errorText = await sdpResponse.text();
             console.error('OpenAI SDP exchange error:', sdpResponse.status, errorText);
-            throw new Error('Failed to exchange SDP with OpenAI');
+            throw new Error('Failed to exchange SDP with OpenAI. Check console for details.');
         }
 
         const answerSdp = await sdpResponse.text();
@@ -632,6 +652,86 @@ function escapeHtml(text) {
 
 function capitalizeFirst(str) {
     return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// ============================================
+// Authentication & Modal Functions
+// ============================================
+
+async function checkAuthStatus() {
+    try {
+        const response = await fetch(`${CONFIG.serverUrl}/api/auth/status`, {
+            credentials: 'include'
+        });
+        const data = await response.json();
+        return data.configured;
+    } catch (error) {
+        console.error('Error checking auth status:', error);
+        return false;
+    }
+}
+
+function showApiKeyModal() {
+    elements.apiKeyModal.style.display = 'flex';
+    elements.apiKeyModal.classList.add('show');
+}
+
+function hideApiKeyModal() {
+    elements.apiKeyModal.style.display = 'none';
+    elements.apiKeyModal.classList.remove('show');
+    elements.keyError.textContent = '';
+}
+
+async function handleKeySubmit(e) {
+    e.preventDefault();
+    const apiKey = elements.apiKeyInput.value.trim();
+
+    if (!apiKey) {
+        elements.keyError.textContent = 'Please enter an API key';
+        return;
+    }
+
+    try {
+        const submitBtn = elements.apiKeyForm.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Validating...';
+
+        const response = await fetch(`${CONFIG.serverUrl}/api/auth/key`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ apiKey })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            hideApiKeyModal();
+            addLogEntry('system', 'API Key saved successfully. You can now start the interview.');
+            // Automatically try to start the interview after saving key
+            startInterview();
+        } else {
+            elements.keyError.textContent = data.error || 'Invalid API key';
+        }
+    } catch (error) {
+        elements.keyError.textContent = 'Connection error. Is the server running?';
+        console.error('Key submission error:', error);
+    } finally {
+        const submitBtn = elements.apiKeyForm.querySelector('button[type="submit"]');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `
+            <span class="btn-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                    <polyline points="17 21 17 13 7 13 7 21" />
+                    <polyline points="7 3 7 8 15 8" />
+                </svg>
+            </span>
+            Save & Continue
+        `;
+    }
 }
 
 // ============================================

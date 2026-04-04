@@ -44,8 +44,9 @@ export async function retrieveContext(query, topK = 3, apiKey) {
             if (count === 0) {
                 return { hasContext: false, context: '', sources: [] };
             }
-        } catch {
+        } catch (error) {
             // ChromaDB not running or unreachable
+            console.warn('ℹ RAG fallback: Vector store unreachable, proceeding without context');
             return { hasContext: false, context: '', sources: [] };
         }
 

@@ -44,23 +44,34 @@ const authLimiter = rateLimit({
   message: 'Too many login attempts, please try again later'
 });
 
-// Session Configuration
+// Session Configuration - Enhanced for production proxy
+app.set('trust proxy', 1); // Enable trusting the proxy (e.g. Render/Heroku)
 app.use(session({
   secret: process.env.SESSION_SECRET || 'ielts-bot-secret-key-' + Date.now(),
   resave: false,
   saveUninitialized: false,
+  proxy: true, // Required for secure cookies behind proxy
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // true in production
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
 
 // CORS Configuration for production
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
+  : ['http://localhost:3000', 'http://localhost:5500', 'http://127.0.0.1:5500'];
+
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' && process.env.FRONTEND_URL
-    ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-    : '*', // Allow all origins in development
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200
 };
@@ -98,12 +109,13 @@ app.post('/api/auth/key', authLimiter, (req, res) => {
     return res.status(400).json({ error: 'Invalid API key format' });
   }
 
-  if (!apiKey.startsWith('sk-')) {
+  const cleanKey = apiKey.trim();
+  if (!cleanKey.startsWith('sk-')) {
     return res.status(400).json({ error: 'API key must start with "sk-"' });
   }
 
   // Store in session
-  req.session.openaiKey = apiKey;
+  req.session.openaiKey = cleanKey;
 
   res.json({
     success: true,
@@ -122,8 +134,9 @@ app.post('/api/auth/clear', (req, res) => {
 
 // GET /api/auth/status - Check if key is configured
 app.get('/api/auth/status', (req, res) => {
+  const apiKey = getApiKey(req);
   res.json({
-    configured: !!getApiKey(req),
+    configured: !!apiKey,
     usingEnv: !req.session.openaiKey && !!process.env.OPENAI_API_KEY
   });
 });
@@ -165,25 +178,31 @@ const IELTS_INSTRUCTIONS = `You are Mona, an IELTS Speaking Examiner and Coach c
 - NEVER continue to the next question in the same response. Wait for the candidate to actually speak.
 - Each of your responses must end with a single question or a single instruction, then silence.
 
+**CRITICAL RULE — SESSION MEMORY:**
+- You MUST remember EVERYTHING the candidate says throughout the entire conversation.
+- When the candidate tells you their name, STORE IT and use it consistently for the rest of the session. Address them BY NAME in every response.
+- Remember their hometown, job, hobbies, interests, and all other details they share. Reference these details naturally in follow-up questions and feedback.
+- If the candidate said their name is "Rahul", you must call them "Rahul" in every subsequent response — NEVER forget it or ask again.
+- Build on previous answers: "Earlier you mentioned you enjoy cooking — how does that connect to..."
+
 **Your Role:**
 - Introduce yourself as "Mona" at the beginning
 - Conduct a structured IELTS speaking test (Part 1, Part 2, Part 3)
-- Listen carefully to the candidate's answer before responding
+- **CRITICAL: Actively listen, REMEMBER, and USE the details the candidate shares (e.g., their name, hometown, job, hobbies). Acknowledge their specific answers naturally before moving to the next topic.**
 - Provide constructive feedback after each answer
 - Give a sample answer to demonstrate excellence
 - Maintain an encouraging, professional tone
-- Remember and use the candidate's name after they introduce themselves
 
 **Interview Structure:**
 
 **Part 1 (4-5 minutes):** Introduction and familiar topics
 - First, introduce yourself and ask for their full name. Then STOP and WAIT.
-- After they reply with their name, greet them by name and ask the first topic question. Then STOP and WAIT.
+- After they reply with their name, greet them by name and ask where they are from or what they do. Then STOP and WAIT.
 - Ask 2-3 questions per topic, covering 2-3 topics total
-- Only ask the next question AFTER the candidate has answered the current one
+- Only ask the next question AFTER the candidate has answered the current one and you have given feedback
 
 **Part 2 (3-4 minutes):** Individual long turn
-- Give a task card with a topic and points to cover
+- Give a task card with a topic and points to cover (incorporate their interests if known)
 - Allow 1 minute preparation time (mention this)
 - Ask candidate to speak for 1-2 minutes
 - Ask 1-2 follow-up questions
@@ -194,28 +213,27 @@ const IELTS_INSTRUCTIONS = `You are Mona, an IELTS Speaking Examiner and Coach c
 - 4-5 questions with deeper discussion
 
 **After Each Answer (except the name introduction):**
-1. **Brief Feedback** (2-3 sentences):
+1. **Acknowledge & Feedback** (2-3 sentences):
+   - Acknowledge their specific answer (e.g., "Hyderabad sounds like a vibrant city...").
    - Estimated band score (e.g., "This response shows Band 6-6.5 level")
-   - Strengths in: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation
+   - Strengths/weaknesses: Fluency, Lexical Resource, Grammar, Pronunciation
 
 2. **2-3 Specific Improvements:**
    - Point out specific areas to improve
    - Give concrete examples
 
 3. **Strong Sample Answer:**
-   - Provide a Band 8-9 level answer to the same question
-   - Demonstrate advanced vocabulary and structures
+   - Provide a Band 8-9 level answer to the SAME question, tailored to their context if possible.
 
 4. **Next Question:**
-   - Ask ONE follow-up or next question, then STOP
+   - Ask ONE follow-up or next question logically connected to the conversation, then STOP.
 
 **Important Guidelines:**
-- Keep feedback CONCISE but valuable
+- Keep feedback CONCISE but highly personalized to their actual answer.
 - Be encouraging and supportive
 - Speak clearly and at natural pace
 - ALWAYS wait for the candidate to respond before moving on
-- Track which part you're in and progress accordingly
-- End the interview after Part 3 is complete
+- End the interview gracefully after Part 3 is complete
 
 Start by introducing yourself as Mona and asking for the candidate's full name. Say ONLY the introduction and the name question, nothing else.`;
 
@@ -224,16 +242,21 @@ Start by introducing yourself as Mona and asking for the candidate's full name. 
 // ============================================
 
 // POST /api/upload-pdf - Upload and process PDF
-app.post('/api/upload-pdf', upload.single('pdf'), async (req, res) => {
+app.post('/api/upload-pdf', upload.single('pdf'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No PDF file uploaded' });
     }
 
+    const apiKey = getApiKey(req);
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key required for PDF processing' });
+    }
+
     console.log(`\n📄 Processing uploaded PDF: ${req.file.originalname}`);
 
     // Process PDF
-    const result = await processPDF(req.file.path, req.file.originalname, getApiKey(req));
+    const result = await processPDF(req.file.path, req.file.originalname, apiKey);
 
     // Generate unique document ID
     const documentId = `doc_${Date.now()}`;
@@ -260,16 +283,12 @@ app.post('/api/upload-pdf', upload.single('pdf'), async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error uploading PDF:', error);
-    res.status(500).json({
-      error: 'Failed to process PDF',
-      message: error.message
-    });
+    next(error);
   }
 });
 
 // GET /api/materials - List all uploaded materials
-app.get('/api/materials', async (req, res) => {
+app.get('/api/materials', async (req, res, next) => {
   try {
     const documents = await listDocuments();
     res.json({
@@ -278,11 +297,7 @@ app.get('/api/materials', async (req, res) => {
       materials: documents
     });
   } catch (error) {
-    console.error('Error listing materials:', error);
-    res.status(500).json({
-      error: 'Failed to list materials',
-      message: error.message
-    });
+    next(error);
   }
 });
 
@@ -306,7 +321,7 @@ app.delete('/api/materials/:id', async (req, res) => {
 });
 
 // GET /api/materials/stats - Get statistics
-app.get('/api/materials/stats', async (req, res) => {
+app.get('/api/materials/stats', async (req, res, next) => {
   try {
     const stats = await getStats();
     res.json({
@@ -314,24 +329,24 @@ app.get('/api/materials/stats', async (req, res) => {
       stats
     });
   } catch (error) {
-    console.error('Error getting stats:', error);
-    res.status(500).json({
-      error: 'Failed to get stats',
-      message: error.message
-    });
+    next(error);
   }
 });
 
 // POST /api/search - Test semantic search
-app.post('/api/search', async (req, res) => {
+app.post('/api/search', async (req, res, next) => {
   try {
     const { query, topK = 3 } = req.body;
+    const apiKey = getApiKey(req);
 
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
     }
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key required for search' });
+    }
 
-    const context = await retrieveContext(query, topK, getApiKey(req));
+    const context = await retrieveContext(query, topK, apiKey);
 
     res.json({
       success: true,
@@ -341,11 +356,7 @@ app.post('/api/search', async (req, res) => {
       results: context.results
     });
   } catch (error) {
-    console.error('Error searching:', error);
-    res.status(500).json({
-      error: 'Search failed',
-      message: error.message
-    });
+    next(error);
   }
 });
 
@@ -355,7 +366,7 @@ app.post('/api/search', async (req, res) => {
 
 
 // POST /api/realtime/call - Create WebRTC session with OpenAI
-app.post('/api/realtime/call', requireApiKey, async (req, res) => {
+app.post('/api/realtime/call', requireApiKey, async (req, res, next) => {
   try {
     const { config = {} } = req.body;
     const apiKey = getApiKey(req);
@@ -374,11 +385,10 @@ app.post('/api/realtime/call', requireApiKey, async (req, res) => {
         enhancedInstructions = enhancedInstructions + formattedContext;
         console.log(`✓ Injected context from ${materialContext.sources.length} material(s)`);
       } else {
-        console.log('ℹ No materials available, using base instructions');
+        console.log('ℹ No materials available or ChromaDB unreachable');
       }
     } catch (error) {
       console.warn('Warning: Could not retrieve context from materials:', error.message);
-      console.warn('Continuing without RAG context (is ChromaDB running on port 8000?)');
     }
 
     // Prepare session configuration
@@ -393,15 +403,13 @@ app.post('/api/realtime/call', requireApiKey, async (req, res) => {
       input_audio_transcription: {
         model: 'whisper-1'
       },
-      temperature: 0.8,
+      temperature: 0.6,
       max_response_output_tokens: 4096
     };
 
-    console.log('Creating Realtime session with OpenAI...');
-    console.log('Model:', sessionConfig.model);
-    console.log('Voice:', sessionConfig.voice);
+    console.log(`Creating Realtime session for model: ${sessionConfig.model}`);
 
-    // Call OpenAI Realtime API with JSON body
+    // Call OpenAI Realtime API
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
       headers: {
@@ -412,31 +420,26 @@ app.post('/api/realtime/call', requireApiKey, async (req, res) => {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API Error:', response.status, errorText);
+      const errorData = await response.json().catch(() => ({ error: { message: 'Unexpected response from OpenAI' } }));
+      console.error('OpenAI API Error:', response.status, errorData);
       return res.status(response.status).json({
         error: 'Failed to create Realtime session',
-        details: errorText
+        details: errorData.error?.message || 'Check your API key and quota'
       });
     }
 
     const data = await response.json();
-    console.log('Session created successfully');
-    console.log('Session ID:', data.id);
-
-    // Return session data to client
+    
+    // Return essential data to client
     res.json({
       sessionId: data.id,
       clientSecret: data.client_secret,
-      expiresAt: data.expires_at
+      expiresAt: data.expires_at,
+      model: data.model
     });
 
   } catch (error) {
-    console.error('Error creating Realtime session:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error.message
-    });
+    next(error);
   }
 });
 
@@ -445,7 +448,17 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    openaiConfigured: !!process.env.OPENAI_API_KEY
+    env: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('SERVER ERROR:', err);
+  res.status(err.status || 500).json({
+    error: err.name || 'ServerError',
+    message: err.message || 'An internal server error occurred',
+    path: req.path
   });
 });
 
