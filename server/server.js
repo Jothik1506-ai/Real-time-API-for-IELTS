@@ -58,20 +58,10 @@ app.use(session({
   }
 }));
 
-// CORS Configuration for production
-const allowedOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-  : ['http://localhost:3000', 'http://localhost:5500', 'http://127.0.0.1:5500'];
-
+// Temporarily allow Vercel/Railway split deployments
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
+  origin: '*', // Allows all frontend domains (e.g., your Vercel URL)
+  // credentials: true, // Note: Cannot use credentials: true when origin is '*'
   optionsSuccessStatus: 200
 };
 
@@ -288,7 +278,11 @@ app.post('/api/realtime/call', async (req, res, next) => {
     });
 
   } catch (error) {
-    next(error);
+    console.error('Error creating Realtime session:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
   }
 });
 

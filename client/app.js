@@ -123,7 +123,6 @@ async function startInterview() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            credentials: 'include',
             body: JSON.stringify({
                 apiKey: state.userApiKey, // Pass key directly in request payload
                 config: {
@@ -134,15 +133,30 @@ async function startInterview() {
         });
 
         if (!response.ok) {
-            const error = await response.json();
+            const errorText = await response.text();
+            let parsedError;
+            try {
+                parsedError = JSON.parse(errorText);
+            } catch (e) {
+                console.error('Actual non-JSON response from server:', errorText);
+                throw new Error(`Server returned an invalid format. Check if your backend URL (${CONFIG.serverUrl}) is fully correct.`);
+            }
+
             if (response.status === 401) {
                 showApiKeyModal();
                 throw new Error('Please provide your OpenAI API key');
             }
-            throw new Error(error.error || 'Failed to create session');
+            throw new Error(parsedError.error || 'Failed to create session');
         }
 
-        const data = await response.json();
+        const responseText = await response.text();
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            console.error('Failed to parse successful response as JSON:', responseText);
+            throw new Error('Server connected but returned invalid JSON');
+        }
         state.sessionId = data.sessionId;
         const ephemeralKey = data.clientSecret.value;
 
@@ -663,7 +677,7 @@ function capitalizeFirst(str) {
 async function checkAuthStatus() {
     try {
         const response = await fetch(`${CONFIG.serverUrl}/api/auth/status`, {
-            credentials: 'include'
+            // credentials: 'include' // Cannot use when CORS origin is '*'
         });
         const data = await response.json();
         return data.configured;
