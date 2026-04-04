@@ -8,9 +8,8 @@ const ENV = {
 
 // Check if we need to override the backend URL for specific deployments (e.g. Render/Vercel split)
 if (window.location.hostname.includes('vercel.app')) {
-    // ⚠️ IMPORTANT: Replace this with your actual Railway backend URL! 
-    // Examples: 'https://ielts-bot-production.up.railway.app'
-    ENV.BACKEND_URL = 'https://your-backend-production.up.railway.app'; 
+    // Railway public backend URL configured for Vercel deployment
+    ENV.BACKEND_URL = 'https://real-time-api-for-ielts-production.up.railway.app'; 
 }
 
 // Export configuration globally
