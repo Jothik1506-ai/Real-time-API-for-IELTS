@@ -1,20 +1,13 @@
-// Environment configuration for production deployment
+// Environment configuration for Vercel Serverless
 const ENV = {
-    // Automatically detect environment and use appropriate backend URL
-    BACKEND_URL: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-        ? 'http://localhost:3000'
-        : window.location.origin // Default to the same origin for production if not specified
+    // Empty string defaults to making relative path requests starting with /api
+    // so both localhost:3000 and the deployed Vercel app hit their own endpoints
+    BACKEND_URL: ''
 };
-
-// Check if we need to override the backend URL for specific deployments (e.g. Render/Vercel split)
-if (window.location.hostname.includes('vercel.app')) {
-    // Railway public backend URL configured for Vercel deployment
-    ENV.BACKEND_URL = 'https://real-time-api-for-ielts-production.up.railway.app'; 
-}
 
 // Export configuration globally
 window.ENV = ENV;
 
 // Log current environment (helpful for debugging)
-console.log('Environment:', window.location.hostname.includes('localhost') ? 'Development' : 'Production');
-console.log('Backend URL:', ENV.BACKEND_URL);
+console.log('Environment:', window.location.hostname.includes('localhost') || window.location.hostname === '127.0.0.1' ? 'Development' : 'Production');
+console.log('Backend URL: Vercel Serverless Functions (Relative)');

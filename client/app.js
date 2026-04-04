@@ -259,15 +259,13 @@ async function startInterview() {
     } catch (error) {
         console.error('Error starting interview:', error);
         
+        // Handle Vercel serverless / network issues
         let displayMessage = error.message;
-        // Handle CORS/network error likely caused by Railway 503 during wake-up (missing CORS headers)
         if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-            displayMessage = 'The backend server is currently waking up from sleep mode (this takes 30-60 seconds). Please try again in a moment.';
-            updateStatus('Server waking up...', 'error');
-        } else {
-            updateStatus('Connection failed', 'error');
+            displayMessage = 'Could not connect to the API. Please check your internet connection or try again later.';
         }
         
+        updateStatus('Connection failed', 'error');
         addLogEntry('system', `Error: ${displayMessage}`);
         alert(`Failed to start interview: ${displayMessage}`);
         cleanup();
@@ -732,15 +730,6 @@ async function handleKeySubmit(e) {
 
 console.log('IELTS Speaking Interview Bot initialized');
 console.log('Configuration:', CONFIG);
-
-// Send a background ping to wake up the server when the page loads
-function wakeupServer() {
-    console.log('Sending wake up ping to backward server...');
-    fetch(`${CONFIG.serverUrl}/api/auth/status`)
-        .then(() => console.log('Backend server is awake!'))
-        .catch(e => console.log('Wakeup ping failed (expected during cold start due to delayed CORS):', e.message));
-}
-wakeupServer();
 
 // Check for WebRTC support
 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
