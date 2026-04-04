@@ -20,6 +20,7 @@ const state = {
     isConnected: false,
     isTalking: false,
     isMuted: false,
+    userApiKey: null, // Stateless API key storage
     conversationHistory: []
 };
 
@@ -94,9 +95,9 @@ async function startInterview() {
     try {
         updateStatus('Checking authentication...', 'connecting');
 
-        // Verify if API key is set
+        // Verify if API key is set in memory or on server
         const authOk = await checkAuthStatus();
-        if (!authOk) {
+        if (!authOk && !state.userApiKey) {
             showApiKeyModal();
             updateStatus('API Key required', 'error');
             return;
@@ -124,6 +125,7 @@ async function startInterview() {
             },
             credentials: 'include',
             body: JSON.stringify({
+                apiKey: state.userApiKey, // Pass key directly in request payload
                 config: {
                     model: CONFIG.model,
                     voice: CONFIG.voice
@@ -686,52 +688,19 @@ async function handleKeySubmit(e) {
     e.preventDefault();
     const apiKey = elements.apiKeyInput.value.trim();
 
-    if (!apiKey) {
-        elements.keyError.textContent = 'Please enter an API key';
+    if (!apiKey || !apiKey.startsWith('sk-')) {
+        elements.keyError.textContent = 'Please enter a valid API key starting with sk-';
         return;
     }
 
-    try {
-        const submitBtn = elements.apiKeyForm.querySelector('button[type="submit"]');
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Validating...';
-
-        const response = await fetch(`${CONFIG.serverUrl}/api/auth/key`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ apiKey })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            hideApiKeyModal();
-            addLogEntry('system', 'API Key saved successfully. You can now start the interview.');
-            // Automatically try to start the interview after saving key
-            startInterview();
-        } else {
-            elements.keyError.textContent = data.error || 'Invalid API key';
-        }
-    } catch (error) {
-        elements.keyError.textContent = 'Connection error. Is the server running?';
-        console.error('Key submission error:', error);
-    } finally {
-        const submitBtn = elements.apiKeyForm.querySelector('button[type="submit"]');
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = `
-            <span class="btn-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                    stroke-linejoin="round">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                    <polyline points="17 21 17 13 7 13 7 21" />
-                    <polyline points="7 3 7 8 15 8" />
-                </svg>
-            </span>
-            Save & Continue
-        `;
-    }
+    // Store temporarily in memory (stateless)
+    state.userApiKey = apiKey;
+    
+    hideApiKeyModal();
+    addLogEntry('system', 'API Key applied securely for this session.');
+    
+    // Automatically try to start the interview after saving key
+    startInterview();
 }
 
 // ============================================

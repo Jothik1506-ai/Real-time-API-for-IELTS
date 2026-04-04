@@ -366,10 +366,21 @@ app.post('/api/search', async (req, res, next) => {
 
 
 // POST /api/realtime/call - Create WebRTC session with OpenAI
-app.post('/api/realtime/call', requireApiKey, async (req, res, next) => {
+app.post('/api/realtime/call', async (req, res, next) => {
   try {
-    const { config = {} } = req.body;
-    const apiKey = getApiKey(req);
+    const { config = {}, apiKey } = req.body;
+    
+    // 1. Validation & Fallback logic (BONUS)
+    // Prefer user-provided API key, fallback to server session or process.env for paid users
+    const resolvedApiKey = apiKey || getApiKey(req);
+
+    if (!resolvedApiKey) {
+      return res.status(400).json({ error: 'OpenAI API key is required' });
+    }
+    
+    if (!resolvedApiKey.startsWith('sk-')) {
+      return res.status(400).json({ error: 'Invalid API key format. Must start with "sk-"' });
+    }
 
     // Retrieve context from materials if available
     let enhancedInstructions = config.instructions || IELTS_INSTRUCTIONS;
@@ -378,7 +389,7 @@ app.post('/api/realtime/call', requireApiKey, async (req, res, next) => {
     try {
       // Get initial context (can be enhanced with conversation history later)
       const initialQuery = "IELTS speaking test questions and examples";
-      materialContext = await retrieveContext(initialQuery, 3, apiKey);
+      materialContext = await retrieveContext(initialQuery, 3, resolvedApiKey);
 
       if (materialContext.hasContext) {
         const formattedContext = formatContextForAI(materialContext);
@@ -413,7 +424,7 @@ app.post('/api/realtime/call', requireApiKey, async (req, res, next) => {
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${resolvedApiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(sessionConfig)
