@@ -4,16 +4,15 @@ import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import multer from 'multer';
 import fs from 'fs/promises';
 import session from 'express-session';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
-// RAG System utilities
-import { processPDF } from './utils/pdfProcessor.js';
-import { addDocuments, deleteDocument, listDocuments, getStats } from './utils/vectorStore.js';
-import { retrieveContext, formatContextForAI } from './utils/retriever.js';
+// RAG System utilities temporarily disabled for production stability
+// import { processPDF } from './utils/pdfProcessor.js';
+// import { addDocuments, deleteDocument, listDocuments, getStats } from './utils/vectorStore.js';
+// import { retrieveContext, formatContextForAI } from './utils/retriever.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,30 +140,7 @@ app.get('/api/auth/status', (req, res) => {
   });
 });
 
-// Configure multer for PDF uploads
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = path.join(__dirname, 'uploads');
-    await fs.mkdir(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed'));
-    }
-  }
-});
+// Multer config for PDF uploads temporarily disabled
 
 // Serve static files from client directory
 app.use(express.static(path.join(__dirname, '../client')));
@@ -237,128 +213,7 @@ const IELTS_INSTRUCTIONS = `You are Mona, an IELTS Speaking Examiner and Coach c
 
 Start by introducing yourself as Mona and asking for the candidate's full name. Say ONLY the introduction and the name question, nothing else.`;
 
-// ============================================
-// RAG SYSTEM API ENDPOINTS
-// ============================================
-
-// POST /api/upload-pdf - Upload and process PDF
-app.post('/api/upload-pdf', upload.single('pdf'), async (req, res, next) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No PDF file uploaded' });
-    }
-
-    const apiKey = getApiKey(req);
-    if (!apiKey) {
-      return res.status(401).json({ error: 'API key required for PDF processing' });
-    }
-
-    console.log(`\n📄 Processing uploaded PDF: ${req.file.originalname}`);
-
-    // Process PDF
-    const result = await processPDF(req.file.path, req.file.originalname, apiKey);
-
-    // Generate unique document ID
-    const documentId = `doc_${Date.now()}`;
-
-    // Add to vector store
-    await addDocuments(
-      result.chunks,
-      result.embeddings,
-      documentId,
-      {
-        fileName: req.file.originalname,
-        uploadedAt: new Date().toISOString()
-      }
-    );
-
-    console.log(`✓ Successfully processed and stored ${req.file.originalname}`);
-
-    res.json({
-      success: true,
-      documentId,
-      fileName: req.file.originalname,
-      chunks: result.chunks.length,
-      message: 'PDF processed and added to knowledge base'
-    });
-
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/materials - List all uploaded materials
-app.get('/api/materials', async (req, res, next) => {
-  try {
-    const documents = await listDocuments();
-    res.json({
-      success: true,
-      count: documents.length,
-      materials: documents
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// DELETE /api/materials/:id - Delete a material
-app.delete('/api/materials/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await deleteDocument(id);
-
-    res.json({
-      success: true,
-      message: `Material ${id} deleted successfully`
-    });
-  } catch (error) {
-    console.error('Error deleting material:', error);
-    res.status(500).json({
-      error: 'Failed to delete material',
-      message: error.message
-    });
-  }
-});
-
-// GET /api/materials/stats - Get statistics
-app.get('/api/materials/stats', async (req, res, next) => {
-  try {
-    const stats = await getStats();
-    res.json({
-      success: true,
-      stats
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/search - Test semantic search
-app.post('/api/search', async (req, res, next) => {
-  try {
-    const { query, topK = 3 } = req.body;
-    const apiKey = getApiKey(req);
-
-    if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
-    }
-    if (!apiKey) {
-      return res.status(401).json({ error: 'API key required for search' });
-    }
-
-    const context = await retrieveContext(query, topK, apiKey);
-
-    res.json({
-      success: true,
-      query,
-      hasContext: context.hasContext,
-      sources: context.sources,
-      results: context.results
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+// RAG System API Endpoints temporarily disabled
 
 // ============================================
 // REALTIME API ENDPOINTS
@@ -382,25 +237,8 @@ app.post('/api/realtime/call', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid API key format. Must start with "sk-"' });
     }
 
-    // Retrieve context from materials if available
+    // Retrieve context from materials is disabled. Use static instructions.
     let enhancedInstructions = config.instructions || IELTS_INSTRUCTIONS;
-    let materialContext = null;
-
-    try {
-      // Get initial context (can be enhanced with conversation history later)
-      const initialQuery = "IELTS speaking test questions and examples";
-      materialContext = await retrieveContext(initialQuery, 3, resolvedApiKey);
-
-      if (materialContext.hasContext) {
-        const formattedContext = formatContextForAI(materialContext);
-        enhancedInstructions = enhancedInstructions + formattedContext;
-        console.log(`✓ Injected context from ${materialContext.sources.length} material(s)`);
-      } else {
-        console.log('ℹ No materials available or ChromaDB unreachable');
-      }
-    } catch (error) {
-      console.warn('Warning: Could not retrieve context from materials:', error.message);
-    }
 
     // Prepare session configuration
     const sessionConfig = {
