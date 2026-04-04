@@ -4,7 +4,7 @@
 
 // Configuration
 const CONFIG = {
-    serverUrl: window.ENV?.BACKEND_URL || 'http://localhost:3000',
+    serverUrl: window.ENV?.BACKEND_URL ?? 'http://localhost:3000',
     model: 'gpt-4o-realtime-preview-2024-12-17',
     voice: 'alloy' // Options: alloy, echo, shimmer
 };
